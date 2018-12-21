@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
@@ -19,6 +21,7 @@ var buildDate = "unknown"
 var listen = "127.0.0.1:8000"
 var dnsManglingList stringArray
 var verbose = false
+var mode string
 
 func init() {
 	flag.Usage = func() {
@@ -26,7 +29,8 @@ func init() {
 		flag.PrintDefaults()
 	}
 	flag.StringVar(&listen, "listen", listen, "Address on which the server will listen")
-	flag.Var(&dnsManglingList, "resolve", "Provide a custom address for a specific host and port pair. This option can be used many times")
+	flag.Var(&dnsManglingList, "resolve", "Provide a custom IP address for a specific host. This option can be used many times")
+	flag.StringVar(&mode, "mode", "socks5", "Proxy mode, allowed values: http, socks5")
 	flag.BoolVar(&verbose, "verbose", verbose, "Display access logs")
 	flag.Parse()
 
@@ -63,24 +67,44 @@ func main() {
 		log.Printf(" - Will resolve %q to %q", hostAndIP[0], hostAndIP[1])
 	}
 
-	var rewriter socks5.AddressRewriter
-	if verbose {
-		rewriter = NewRewriterLogger(log.New(os.Stderr, "", log.LstdFlags))
-	}
+	logger := log.New(os.Stderr, "", log.LstdFlags)
 
-	// Instanciate socks proxy
-	conf := &socks5.Config{
-		Resolver: dnsMangler,
-		Rewriter: rewriter,
-	}
-	server, err := socks5.New(conf)
-	if err != nil {
-		log.Fatal(err)
-	}
+	if mode == "socks5" {
+		var rewriter socks5.AddressRewriter
+		if verbose {
+			rewriter = NewRewriterLogger(logger)
+		}
 
-	// Start server
-	log.Printf("Start listening on %q", listen)
-	if err := server.ListenAndServe("tcp", listen); err != nil {
-		log.Fatal(err)
+		// Instanciate socks proxy
+		conf := &socks5.Config{
+			Resolver: dnsMangler,
+			Rewriter: rewriter,
+		}
+		server, err := socks5.New(conf)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Start server
+		log.Printf("Start listening on %q - mode: SOCKS5", listen)
+		if err := server.ListenAndServe("tcp", listen); err != nil {
+			log.Fatal(err)
+		}
+	} else if mode == "http" {
+		server := &http.Server{
+			Addr: listen,
+			Handler: &httpProxy{
+				Resolver: dnsMangler,
+				Verbose:  verbose,
+				Logger:   logger,
+			},
+			TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
+		}
+		log.Printf("Start listening on %q - mode: HTTP", listen)
+		if err := server.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		log.Fatalf("Wrong mode: %s", mode)
 	}
 }
