@@ -1,17 +1,15 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"github.com/armon/go-socks5"
-	"golang.org/x/net/context"
 )
 
 type RewriterLogger struct {
 	logger *log.Logger
 }
-
-var _ socks5.AddressRewriter = &RewriterLogger{}
 
 func NewRewriterLogger(logger *log.Logger) *RewriterLogger {
 	return &RewriterLogger{
@@ -19,7 +17,7 @@ func NewRewriterLogger(logger *log.Logger) *RewriterLogger {
 	}
 }
 
-func (l *RewriterLogger) Rewrite(ctx context.Context, request *socks5.Request) (context.Context, *socks5.AddrSpec) {
+func (l *RewriterLogger) Rewrite(ctx context.Context, request *socks5.Request, addr *socks5.AddrSpec) *socks5.AddrSpec {
 	// Log
 	var cmdName string
 	switch request.Command {
@@ -35,5 +33,5 @@ func (l *RewriterLogger) Rewrite(ctx context.Context, request *socks5.Request) (
 	l.logger.Printf("Command: %s, FQDN: %q, IP: %q, port: %d", cmdName, request.DestAddr.FQDN, request.DestAddr.IP, request.DestAddr.Port)
 
 	// Noop
-	return ctx, request.DestAddr
+	return addr
 }
