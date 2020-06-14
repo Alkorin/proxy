@@ -20,6 +20,7 @@ var buildDate = "unknown"
 // Config
 var listen = "127.0.0.1:8000"
 var dnsManglingList stringArray
+var rewriteList stringArray
 var verbose = false
 var mode string
 
@@ -30,6 +31,7 @@ func init() {
 	}
 	flag.StringVar(&listen, "listen", listen, "Address on which the server will listen")
 	flag.Var(&dnsManglingList, "resolve", "Provide a custom IP address for a specific host. This option can be used many times")
+	flag.Var(&rewriteList, "rewrite", "Provide a custom IP:Port for a specific IP/FQDN:port. Format: (IP|FQDN):PORT:IP[:PORT]")
 	flag.StringVar(&mode, "mode", "socks5", "Proxy mode, allowed values: http, socks5")
 	flag.BoolVar(&verbose, "verbose", verbose, "Display access logs")
 	flag.Parse()
@@ -70,15 +72,31 @@ func main() {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 
 	if mode == "socks5" {
-		var rewriter socks5.AddressRewriter
+		rewriterFactory := &RewriterFactory{}
+
+		if len(rewriteList) > 0 {
+			rewriter := NewRewriterAddr()
+			for _, v := range rewriteList {
+				err := rewriter.AddRule(v)
+				if err != nil {
+					log.Fatalf("Failed to parse rewrite %q: %s", v, err.Error())
+				}
+			}
+
+			for k, v := range rewriter.Rules {
+				log.Printf(" - Will rewrite %q to %s:%d", k, v.IP, v.Port)
+			}
+			rewriterFactory.AddRewriter(rewriter)
+		}
+
 		if verbose {
-			rewriter = NewRewriterLogger(logger)
+			rewriterFactory.AddRewriter(NewRewriterLogger(logger))
 		}
 
 		// Instanciate socks proxy
 		conf := &socks5.Config{
 			Resolver: dnsMangler,
-			Rewriter: rewriter,
+			Rewriter: rewriterFactory,
 		}
 		server, err := socks5.New(conf)
 		if err != nil {

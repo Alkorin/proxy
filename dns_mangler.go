@@ -1,11 +1,11 @@
 package main
 
 import (
+	"context"
 	"net"
 
 	"github.com/armon/go-socks5"
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
 )
 
 type DNSMangler struct {
