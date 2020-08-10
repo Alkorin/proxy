@@ -23,6 +23,7 @@ var dnsManglingList stringArray
 var rewriteList stringArray
 var verbose = false
 var mode string
+var debug = false
 
 func init() {
 	flag.Usage = func() {
@@ -31,9 +32,10 @@ func init() {
 	}
 	flag.StringVar(&listen, "listen", listen, "Address on which the server will listen")
 	flag.Var(&dnsManglingList, "resolve", "Provide a custom IP address for a specific host. This option can be used many times")
-	flag.Var(&rewriteList, "rewrite", "Provide a custom IP:Port for a specific IP/FQDN:port. Format: (IP|FQDN):PORT:IP[:PORT]")
+	flag.Var(&rewriteList, "rewrite", "Provide a custom IP:Port for a specific IP/FQDN:port. Format: (IP|FQDN):PORT[-PORT]:IP[:PORT]")
 	flag.StringVar(&mode, "mode", "socks5", "Proxy mode, allowed values: http, socks5")
 	flag.BoolVar(&verbose, "verbose", verbose, "Display access logs")
+	flag.BoolVar(&debug, "debug", debug, "Display rewrite rules")
 	flag.Parse()
 
 	if flag.NArg() > 0 {
@@ -82,9 +84,11 @@ func main() {
 					log.Fatalf("Failed to parse rewrite %q: %s", v, err.Error())
 				}
 			}
-
-			for k, v := range rewriter.Rules {
-				log.Printf(" - Will rewrite %q to %s:%d", k, v.IP, v.Port)
+			if debug {
+				log.Println("Rewrite rules:")
+				for k, v := range rewriter.Rules {
+					log.Printf(" - Will rewrite %q to %s:%d", k, v.IP, v.Port)
+				}
 			}
 			rewriterFactory.AddRewriter(rewriter)
 		}

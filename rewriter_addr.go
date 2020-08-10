@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 
 	"github.com/armon/go-socks5"
 )
 
-var ErrInvalidErrorRule = errors.New("Invalid format, should be (IP|FQDN):PORT:IP[:PORT]")
+var ErrInvalidErrorRule = errors.New("Invalid format, should be (IP|FQDN):PORT[-PORT]:IP[:PORT]")
 
 type RewriterAddr struct {
 	Rules map[string]RewriteDest
@@ -28,35 +27,57 @@ func NewRewriterAddr() *RewriterAddr {
 	}
 }
 
+// AddRule parse and import a rule into the map
+// Format: (IP|FQDN):PORT[-PORT]:IP[:PORT]
 func (r *RewriterAddr) AddRule(rule string) error {
 	splittedRule := strings.Split(rule, ":")
 	if len(splittedRule) != 3 && len(splittedRule) != 4 {
 		return ErrInvalidErrorRule
 	}
 
-	srcPort, err := strconv.ParseUint(splittedRule[1], 10, 16)
+	// Parse source port (PORT[-PORT])
+	splittedSrcPort := strings.Split(splittedRule[1], "-")
+	if len(splittedSrcPort) != 1 && len(splittedSrcPort) != 2 {
+		return ErrInvalidErrorRule
+	}
+
+	srcPortBegin, err := ParseUint16(splittedSrcPort[0])
 	if err != nil {
 		return fmt.Errorf("Invalid source port %q: %s", splittedRule[1], err.Error())
 	}
 
+	srcPortEnd := srcPortBegin
+	if len(splittedSrcPort) == 2 {
+		port, err := ParseUint16(splittedSrcPort[1])
+		if err != nil {
+			return fmt.Errorf("Invalid end source port %q: %s", splittedRule[1], err.Error())
+		}
+		if srcPortBegin > port {
+			return fmt.Errorf("Invalid end source port %q: should be lower than %d", splittedRule[1], srcPortBegin)
+		}
+		srcPortEnd = uint16(port)
+	}
+
 	// Parse Destination
-	var dst RewriteDest
 	ip := net.ParseIP(splittedRule[2])
 	if ip == nil {
 		return fmt.Errorf("Invalid destination IP %q", splittedRule[2])
 	}
-	dst.IP = ip
+	dstPortBegin := srcPortBegin
 	if len(splittedRule) == 4 {
-		dstPort, err := strconv.ParseUint(splittedRule[3], 10, 16)
+		port, err := ParseUint16(splittedRule[3])
 		if err != nil {
-			return fmt.Errorf("Invalid destination ort %q: %s", splittedRule[3], err.Error())
+			return fmt.Errorf("Invalid destination port %q: %s", splittedRule[3], err.Error())
 		}
-		dst.Port = int(dstPort)
-	} else {
-		dst.Port = int(srcPort)
+		dstPortBegin = port
 	}
 
-	r.Rules[fmt.Sprintf("%s:%d", splittedRule[0], srcPort)] = dst
+	for srcPort, dstPort := srcPortBegin, dstPortBegin; srcPort <= srcPortEnd; srcPort, dstPort = srcPort+1, dstPort+1 {
+		r.Rules[fmt.Sprintf("%s:%d", splittedRule[0], srcPort)] = RewriteDest{
+			IP:   ip,
+			Port: int(dstPort),
+		}
+	}
 
 	return nil
 }
