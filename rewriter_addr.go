@@ -53,9 +53,9 @@ func (r *RewriterAddr) AddRule(rule string) error {
 			return fmt.Errorf("Invalid end source port %q: %s", splittedRule[1], err.Error())
 		}
 		if srcPortBegin > port {
-			return fmt.Errorf("Invalid end source port %q: should be lower than %d", splittedRule[1], srcPortBegin)
+			return fmt.Errorf("Invalid end source port %q: should be greater than or equal to %d", splittedRule[1], srcPortBegin)
 		}
-		srcPortEnd = uint16(port)
+		srcPortEnd = port
 	}
 
 	// Parse Destination
@@ -72,10 +72,15 @@ func (r *RewriterAddr) AddRule(rule string) error {
 		dstPortBegin = port
 	}
 
-	for srcPort, dstPort := srcPortBegin, dstPortBegin; srcPort <= srcPortEnd; srcPort, dstPort = srcPort+1, dstPort+1 {
+	if int(dstPortBegin)+int(srcPortEnd-srcPortBegin) > 65535 {
+		return fmt.Errorf("Invalid destination port %d: range overflows past 65535", dstPortBegin)
+	}
+
+	// Use int to avoid uint16 overflow when the range ends at 65535
+	for srcPort, dstPort := int(srcPortBegin), int(dstPortBegin); srcPort <= int(srcPortEnd); srcPort, dstPort = srcPort+1, dstPort+1 {
 		r.Rules[fmt.Sprintf("%s:%d", splittedRule[0], srcPort)] = RewriteDest{
 			IP:   ip,
-			Port: int(dstPort),
+			Port: dstPort,
 		}
 	}
 

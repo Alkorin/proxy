@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/armon/go-socks5"
 )
@@ -25,7 +26,7 @@ var verbose = false
 var mode string
 var debug = false
 
-func init() {
+func parseFlags() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s (Version %s):\n", os.Args[0], buildVersion)
 		flag.PrintDefaults()
@@ -48,32 +49,35 @@ func init() {
 		} else {
 			fmt.Printf("Invalid command %q\n", flag.Arg(0))
 			flag.Usage()
-			os.Exit(-1)
+			os.Exit(2)
 		}
 	}
 }
 
 func main() {
+	parseFlags()
+
 	log.Printf("DNSMangler Proxy version %s", buildVersion)
 
-	// Instanciate our DNS mangler
+	// Instantiate our DNS mangler
 	dnsMangler := NewDNSMangler()
 
 	for _, v := range dnsManglingList {
-		hostAndIP := strings.Split(v, ":")
-		if len(hostAndIP) != 2 {
+		// Split on the first colon only so IPv6 addresses are accepted
+		host, ip, ok := strings.Cut(v, ":")
+		if !ok || host == "" {
 			log.Fatalf("Invalid resolve value %q, should be in %q format", v, "host:ip")
 		}
-		err := dnsMangler.AddHost(hostAndIP[0], hostAndIP[1])
-		if err != nil {
-			log.Fatalf(err.Error())
+		if err := dnsMangler.AddHost(host, ip); err != nil {
+			log.Fatal(err)
 		}
-		log.Printf(" - Will resolve %q to %q", hostAndIP[0], hostAndIP[1])
+		log.Printf(" - Will resolve %q to %q", host, ip)
 	}
 
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 
-	if mode == "socks5" {
+	switch mode {
+	case "socks5":
 		rewriterFactory := &RewriterFactory{}
 
 		if len(rewriteList) > 0 {
@@ -97,7 +101,7 @@ func main() {
 			rewriterFactory.AddRewriter(NewRewriterLogger(logger))
 		}
 
-		// Instanciate socks proxy
+		// Instantiate socks proxy
 		conf := &socks5.Config{
 			Resolver: dnsMangler,
 			Rewriter: rewriterFactory,
@@ -112,7 +116,7 @@ func main() {
 		if err := server.ListenAndServe("tcp", listen); err != nil {
 			log.Fatal(err)
 		}
-	} else if mode == "http" {
+	case "http":
 		server := &http.Server{
 			Addr: listen,
 			Handler: &httpProxy{
@@ -120,13 +124,14 @@ func main() {
 				Verbose:  verbose,
 				Logger:   logger,
 			},
-			TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
+			TLSNextProto:      make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
+			ReadHeaderTimeout: 30 * time.Second,
 		}
 		log.Printf("Start listening on %q - mode: HTTP", listen)
 		if err := server.ListenAndServe(); err != nil {
 			log.Fatal(err)
 		}
-	} else {
+	default:
 		log.Fatalf("Wrong mode: %s", mode)
 	}
 }
