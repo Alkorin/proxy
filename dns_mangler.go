@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	"github.com/armon/go-socks5"
-	"github.com/pkg/errors"
 )
 
 type DNSMangler struct {
@@ -23,7 +23,7 @@ func NewDNSMangler() *DNSMangler {
 func (d *DNSMangler) AddHost(host string, ipString string) error {
 	ip := net.ParseIP(ipString)
 	if ip == nil {
-		return errors.Errorf("failed to parse ip: %q", ip)
+		return fmt.Errorf("failed to parse ip: %q", ipString)
 	}
 
 	d.hosts[host] = ip
@@ -38,10 +38,13 @@ func (d *DNSMangler) Resolve(ctx context.Context, name string) (context.Context,
 	}
 
 	// Resolve name
-	addr, err := net.ResolveIPAddr("ip", name)
+	addr, err := net.DefaultResolver.LookupIPAddr(ctx, name)
 	if err != nil {
 		return ctx, nil, err
 	}
+	if len(addr) == 0 {
+		return ctx, nil, fmt.Errorf("no address found for %q", name)
+	}
 
-	return ctx, addr.IP, nil
+	return ctx, addr[0].IP, nil
 }
